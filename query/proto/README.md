@@ -7,4 +7,4 @@ Just run those commands:
 
 the C++ model is generated in the current directory.
 
-This is the basic step, feel free to integrate this in you build process. 
+This is the basic step, feel free to integrate it in you build process. 
