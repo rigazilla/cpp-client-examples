@@ -24,3 +24,8 @@ If you want to run the example
 4. Run the example
 
         ./queryExample
+
+
+Notes
+
+This example provides as source the C++ code derived from the Protobuf (.proto) description of the model. Short how-to on the .proto->C++ translation is provided in the proto subdir.
