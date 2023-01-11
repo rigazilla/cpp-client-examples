@@ -1,77 +1,78 @@
 #include "infinispan/hotrod/ConfigurationBuilder.h"
 #include "infinispan/hotrod/RemoteCacheManager.h"
+#include "infinispan/hotrod/RemoteCacheManagerAdmin.h"
 #include "infinispan/hotrod/RemoteCache.h"
 #include "infinispan/hotrod/Version.h"
 #include "infinispan/hotrod/JBasicMarshaller.h"
 using namespace infinispan::hotrod;
-int main(int argc, char** argv) {
-		ConfigurationBuilder builder;
-		builder.addServer().host("127.0.0.1").port(11222).protocolVersion(
-				Configuration::PROTOCOL_VERSION_24);
-		builder.balancingStrategyProducer(nullptr);
-		RemoteCacheManager cacheManager(builder.build(), false);
-		try {
-		// Create the cache with the given marshallers
-		auto *km = new JBasicMarshaller<std::string>();
-		auto *vm = new JBasicMarshaller<std::string>();
-		RemoteCache<std::string, std::string> cache = cacheManager.getCache<
-				std::string, std::string>(km, &Marshaller<std::string>::destroy,
-				vm, &Marshaller<std::string>::destroy,
-				std::string("namedCache"));
+std::string cacheConf = " <infinispan><cache-container>     <local-cache name=\"namedCache\">\
+         <encoding>\
+		 <key media-type=\"text/plain\"/>\
+		 <value media-type=\"text/plain\"/>\
+         </encoding>\
+      </local-cache></cache-container></infinispan>";
+int main(int argc, char **argv)
+{
+	ConfigurationBuilder builder;
+	builder.addServer().host("127.0.0.1").port(11222).protocolVersion(Configuration::PROTOCOL_VERSION_28);
+	RemoteCacheManager cacheManager(builder.build(), false);
+	try
+	{
 		cacheManager.start();
-		RemoteCache<std::string, std::string> scriptCache =
-				cacheManager.getCache<std::string, std::string>(
-						"___script_cache", false);
+		// Create the cache
+		// and wrap it with data format text/plain
+		RemoteCache<std::string, std::string> cache0 = cacheManager.administration()->getOrCreateCacheWithXml<std::string, std::string>("namedCache",cacheConf);
+		DataFormat<std::string, std::string> df;
+		df.keyMediaType.typeSubtype = std::string("text/plain");
+		df.valueMediaType.typeSubtype = std::string("text/plain");
+		RemoteCache<std::string, std::string> cache = cache0.withDataFormat(&df);
+
+		// Get the ___script_cache
+		// and wrap it with data format text/plain
+		RemoteCache<std::string, std::string> scriptCache0 = cacheManager.getCache<
+			std::string, std::string>(std::string("___script_cache"));
+		DataFormat<std::string, std::string> dfs;
+		dfs.keyMediaType.typeSubtype = std::string("text/plain");
+		dfs.valueMediaType.typeSubtype = std::string("text/plain");
+		RemoteCache<std::string, std::string> scriptCache = scriptCache0.withDataFormat(&dfs);
 		// Install on the server the getValue script
 		std::string getValueScript(
-				"// mode=local,language=javascript\n "
-				"var cache = cacheManager.getCache(\"namedCache\");\n "
-				"var ct = cache.get(\"accessCounter\");\n "
-				"var c = ct==null ? 0 : parseInt(ct);\n "
-				"cache.put(\"accessCounter\",(++c).toString());\n "
-				"cache.get(\"privateValue\") ");
+			"// mode=local,language=javascript\n "
+			"var cache = cacheManager.getCache(\"namedCache\");\n "
+			"var ct = cache.get(\"accessCounter\");\n "
+			"var c = ct==null ? 0 : parseInt(ct);\n "
+			"cache.put(\"accessCounter\",(++c).toString());\n "
+			"cache.get(\"privateValue\")");
 		std::string getValueScriptName("getValue.js");
-		std::string pGetValueScriptName =
-				JBasicMarshaller<std::string>::addPreamble(getValueScriptName);
-		std::string pGetValueScript =
-				JBasicMarshaller<std::string>::addPreamble(getValueScript);
-		scriptCache.put(pGetValueScriptName, pGetValueScript);
+		scriptCache.put(getValueScriptName, getValueScript);
 		// Install on the server the get access counter script
 		std::string getAccessScript(
-				"// mode=local,language=javascript\n "
-				"var cache = cacheManager.getCache(\"namedCache\");\n "
-				"cache.get(\"accessCounter\")");
+			"// mode=local,language=javascript\n "
+			"var cache = cacheManager.getCache(\"namedCache\");\n "
+			"cache.get(\"accessCounter\")");
 		std::string getAccessScriptName("getAccessCounter.js");
-		std::string pGetAccessScriptName =
-				JBasicMarshaller<std::string>::addPreamble(getAccessScriptName);
-		std::string pGetAccessScript =
-				JBasicMarshaller<std::string>::addPreamble(getAccessScript);
-		scriptCache.put(pGetAccessScriptName, pGetAccessScript);
+		scriptCache.put(getAccessScriptName, getAccessScript);
+		// Set a value for the privateValue entry
 		cache.put("privateValue", "Counted Access Value");
+		// Execute JS
 		std::map<std::string, std::string> s;
 		std::vector<unsigned char> execValueResult = cache.execute(
-				getValueScriptName, s);
+			getValueScriptName, s);
 		std::vector<unsigned char> execAccessResult = cache.execute(
-				getAccessScriptName, s);
-
-		std::string value(
-				JBasicMarshallerHelper::unmarshall<std::string>(
-						(char*) execValueResult.data()));
-		std::string access(
-				JBasicMarshallerHelper::unmarshall<std::string>(
-						(char*) execAccessResult.data()));
-
-		std::cout << "Returned value is '" << value
-				<< "' and has been accessed: " << access << " times."
-				<< std::endl;
-
-	} catch (const Exception& e) {
+			getAccessScriptName, s);
+		// Log the results
+		std::string s1(reinterpret_cast<char *>(&execValueResult[0]), execValueResult.size());
+		std::string s2(reinterpret_cast<char *>(&execAccessResult[0]), execAccessResult.size());
+		std::cout << "Returned value is '" << s1
+				  << "' and has been accessed: " << s2 << " times."
+				  << std::endl;
+	}
+	catch (const Exception &e)
+	{
 		std::cout << "is: " << typeid(e).name() << '\n';
 		std::cerr << "fail unexpected exception: " << e.what() << std::endl;
 		return 1;
 	}
-
 	cacheManager.stop();
 	return 0;
 }
-
